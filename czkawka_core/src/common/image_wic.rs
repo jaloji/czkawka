@@ -73,6 +73,14 @@ pub(crate) fn wic_decoder_origin(extension: &str) -> Option<WicDecoderOrigin> {
     wic_decoder_extensions().get(extension).copied()
 }
 
+/// Extensions of the WIC decoders installed by third parties (not shipped by Microsoft).
+pub(crate) fn third_party_extensions() -> impl Iterator<Item = &'static str> {
+    wic_decoder_extensions()
+        .iter()
+        .filter(|(_, origin)| **origin == WicDecoderOrigin::ThirdParty)
+        .map(|(extension, _)| extension.as_str())
+}
+
 fn enumerate_decoders() -> Result<HashMap<String, WicDecoderOrigin>, String> {
     let _com = ComGuard::new()?;
     let factory = imaging_factory()?;
@@ -177,6 +185,14 @@ mod tests {
         assert_eq!(wic_decoder_origin("png"), Some(WicDecoderOrigin::Microsoft));
         assert_eq!(wic_decoder_origin("jpg"), Some(WicDecoderOrigin::Microsoft));
         assert_eq!(wic_decoder_origin("txt"), None);
+    }
+
+    #[test]
+    fn test_third_party_extensions_exclude_microsoft_decoders() {
+        let extensions: Vec<&str> = third_party_extensions().collect();
+        assert!(!extensions.contains(&"png"));
+        assert!(!extensions.contains(&"jpg"));
+        assert!(extensions.iter().all(|ext| wic_decoder_origin(ext) == Some(WicDecoderOrigin::ThirdParty)));
     }
 
     #[test]

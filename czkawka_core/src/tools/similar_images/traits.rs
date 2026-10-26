@@ -8,6 +8,7 @@ use fun_time::fun_time;
 use humansize::{BINARY, format_size};
 
 use crate::common::consts::{HEIC_EXTENSIONS, IMAGE_RS_SIMILAR_IMAGES_EXTENSIONS, RAW_IMAGE_EXTENSIONS};
+use crate::common::image::installed_codec_extensions;
 use crate::common::model::WorkContinueStatus;
 use crate::common::progress_data::ProgressData;
 use crate::common::tool_data::{CommonData, CommonToolData, DeleteItemType, DeleteMethod};
@@ -23,11 +24,16 @@ impl Search for SimilarImages {
         let start_time = Instant::now();
 
         let () = (|| {
-            let extensions = if cfg!(feature = "heif") {
+            let mut extensions = if cfg!(feature = "heif") {
                 [IMAGE_RS_SIMILAR_IMAGES_EXTENSIONS, RAW_IMAGE_EXTENSIONS, HEIC_EXTENSIONS].concat()
             } else {
                 [IMAGE_RS_SIMILAR_IMAGES_EXTENSIONS, RAW_IMAGE_EXTENSIONS].concat()
             };
+            for extension in installed_codec_extensions() {
+                if !extensions.contains(&extension) {
+                    extensions.push(extension);
+                }
+            }
 
             if self.prepare_items(Some(&extensions)).is_err() {
                 return;

@@ -294,14 +294,30 @@ pub fn check_if_can_display_image(path: &str) -> bool {
     #[cfg(not(feature = "heif"))]
     let allowed_extensions = &[IMAGE_RS_EXTENSIONS, RAW_IMAGE_EXTENSIONS].concat();
 
-    if allowed_extensions.iter().any(|ext| &extension_str == ext) {
-        return true;
-    }
+    allowed_extensions.iter().any(|ext| &extension_str == ext) || can_decode_with_system_codec(&extension_str)
+}
+
+/// Extensions of image codecs added to the system by third parties (Windows Imaging Component), sorted.
+/// Always empty on other platforms.
+pub(crate) fn installed_codec_extensions() -> Vec<&'static str> {
     #[cfg(windows)]
-    if crate::common::image_wic::wic_decoder_origin(&extension_str).is_some() {
-        return true;
+    let mut extensions: Vec<&'static str> = crate::common::image_wic::third_party_extensions().collect();
+    #[cfg(not(windows))]
+    let mut extensions: Vec<&'static str> = Vec::new();
+    extensions.sort_unstable();
+    extensions
+}
+
+/// True when an image codec installed on the system (Windows Imaging Component) can decode files with this
+/// lower-case extension. Always false on other platforms.
+fn can_decode_with_system_codec(extension: &str) -> bool {
+    #[cfg(windows)]
+    return crate::common::image_wic::wic_decoder_origin(extension).is_some();
+    #[cfg(not(windows))]
+    {
+        let _ = extension;
+        false
     }
-    false
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]

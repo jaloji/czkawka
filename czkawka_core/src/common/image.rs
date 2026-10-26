@@ -3,7 +3,7 @@ use std::panic;
 use std::path::Path;
 
 use fast_image_resize::{FilterType as FirFilterType, ResizeAlg, ResizeOptions as FirResizeOptions, Resizer};
-use image::{DynamicImage, ImageReader};
+use image::{DynamicImage, ImageFormat, ImageReader};
 use little_exif::exif_tag::ExifTag;
 use little_exif::ifd::ExifTagGroup;
 use little_exif::metadata::Metadata;
@@ -30,15 +30,41 @@ pub(crate) enum ImageType {
 
 /// Decodes an image from raw bytes using the same pipeline as `get_dynamic_image_from_path`.
 /// No EXIF rotation is applied (no path available); call-sites that need rotation handle it separately.
-pub(crate) fn get_dynamic_image_from_bytes(bytes: &[u8], image_type: ImageType) -> Result<DynamicImage, String> {
+/// `format_hint` is used when the format cannot be guessed from content (TGA has no signature).
+pub(crate) fn get_dynamic_image_from_bytes(bytes: &[u8], image_type: ImageType, format_hint: Option<ImageFormat>) -> Result<DynamicImage, String> {
     match image_type {
-        ImageType::Normal => ImageReader::new(std::io::Cursor::new(bytes))
-            .with_guessed_format()
-            .map_err(|e| e.to_string())?
-            .decode()
-            .map_err(|e| e.to_string()),
+        ImageType::Normal => {
+            let mut reader = ImageReader::new(std::io::Cursor::new(bytes)).with_guessed_format().map_err(|e| e.to_string())?;
+            if reader.format().is_none()
+                && let Some(format) = format_hint
+            {
+                reader.set_format(format);
+            }
+            reader.decode().map_err(|e| e.to_string())
+        }
         ImageType::Raw => get_raw_image_from_bytes(bytes),
     }
+}
+
+fn decode_normal_image(path: &str, extension: &str) -> Result<DynamicImage, String> {
+    #[cfg(windows)]
+    let wic_origin = crate::common::image_wic::wic_decoder_origin(extension);
+    #[cfg(windows)]
+    if wic_origin == Some(crate::common::image_wic::WicDecoderOrigin::ThirdParty) {
+        match crate::common::image_wic::decode_with_wic(path, MAXIMUM_IMAGE_PIXELS) {
+            Ok(img) => return Ok(img),
+            Err(e) => trace!("third-party WIC decoder failed for \"{path}\", trying built-in decoders: {e}"),
+        }
+    }
+
+    let bytes = std::fs::read(path).map_err(|e| e.to_string())?;
+    let builtin = get_dynamic_image_from_bytes(&bytes, ImageType::Normal, ImageFormat::from_extension(extension));
+
+    #[cfg(windows)]
+    if builtin.is_err() && wic_origin == Some(crate::common::image_wic::WicDecoderOrigin::Microsoft) {
+        return crate::common::image_wic::decode_with_wic(path, MAXIMUM_IMAGE_PIXELS);
+    }
+    builtin
 }
 
 pub struct LoadedImage {
@@ -83,10 +109,7 @@ pub fn get_dynamic_image_from_path(path: &str, opts: Option<ImgResizeOptions>) -
 
     let res = panic::catch_unwind(|| {
         let img = match image_type {
-            ImageType::Normal => {
-                let bytes = std::fs::read(path).map_err(|e| e.to_string())?;
-                get_dynamic_image_from_bytes(&bytes, ImageType::Normal).map_err(|e| flc!("core_image_open_failed", path = path, reason = e))?
-            }
+            ImageType::Normal => decode_normal_image(path, &path_lower).map_err(|e| flc!("core_image_open_failed", path = path, reason = e))?,
             ImageType::Raw => {
                 // rawler (not(feature = "libraw")) needs a path; libraw reads bytes internally.
                 // Both cases are handled inside get_raw_image.
@@ -271,7 +294,14 @@ pub fn check_if_can_display_image(path: &str) -> bool {
     #[cfg(not(feature = "heif"))]
     let allowed_extensions = &[IMAGE_RS_EXTENSIONS, RAW_IMAGE_EXTENSIONS].concat();
 
-    allowed_extensions.iter().any(|ext| &extension_str == ext)
+    if allowed_extensions.iter().any(|ext| &extension_str == ext) {
+        return true;
+    }
+    #[cfg(windows)]
+    if crate::common::image_wic::wic_decoder_origin(&extension_str).is_some() {
+        return true;
+    }
+    false
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -353,7 +383,7 @@ mod tests {
             && rotated_orientation.is_some()
         {
             let raw_bytes = std::fs::read(TEST_ROTATED_IMAGE).unwrap();
-            let raw_rotated = get_dynamic_image_from_bytes(&raw_bytes, ImageType::Normal).unwrap();
+            let raw_rotated = get_dynamic_image_from_bytes(&raw_bytes, ImageType::Normal, None).unwrap();
             if rotated_orientation == Some(ExifOrientation::Rotate90CW) || rotated_orientation == Some(ExifOrientation::Rotate270CW) {
                 assert_eq!(rotated_img.width(), raw_rotated.height());
                 assert_eq!(rotated_img.height(), raw_rotated.width());
@@ -376,9 +406,21 @@ mod tests {
     }
 
     #[test]
+    fn test_tga_decoding_uses_format_hint() {
+        // 2x1 uncompressed 24-bit TGA: TGA has no signature, so it can only be decoded with a format hint.
+        let tga: &[u8] = &[0, 0, 2, 0, 0, 0, 0, 0, 0, 0, 0, 0, 2, 0, 1, 0, 24, 0x20, 255, 0, 0, 0, 0, 255];
+        get_dynamic_image_from_bytes(tga, ImageType::Normal, None).unwrap_err();
+
+        let img = get_dynamic_image_from_bytes(tga, ImageType::Normal, Some(ImageFormat::Tga)).unwrap().to_rgb8();
+        assert_eq!(img.dimensions(), (2, 1));
+        assert_eq!(img.get_pixel(0, 0).0, [0, 0, 255]);
+        assert_eq!(img.get_pixel(1, 0).0, [255, 0, 0]);
+    }
+
+    #[test]
     fn test_error_handling() {
         get_dynamic_image_from_path("nonexistent.jpg", None).unwrap_err();
-        get_dynamic_image_from_bytes(b"not an image", ImageType::Normal).unwrap_err();
+        get_dynamic_image_from_bytes(b"not an image", ImageType::Normal, None).unwrap_err();
         get_rotation_from_exif("nonexistent.jpg").unwrap_err();
     }
 }

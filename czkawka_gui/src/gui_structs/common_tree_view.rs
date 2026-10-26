@@ -521,6 +521,19 @@ pub(crate) fn create_default_columns(tree_view: &TreeView, columns: &[(i32, Colu
     }
 }
 
+fn load_preview_pixbuf_with_core(file_name: &str) -> Result<Pixbuf, String> {
+    let image = get_dynamic_image_from_path(
+        file_name,
+        Some(ImgResizeOptions {
+            max_width: 1024,
+            max_height: 1024,
+            filter: FirFilterType::Bilinear,
+        }),
+    )?
+    .image;
+    get_pixbuf_from_dynamic_image(image)
+}
+
 pub(crate) fn show_preview(
     tree_view: &TreeView,
     text_view_errors: &TextView,
@@ -554,36 +567,17 @@ pub(crate) fn show_preview(
                 return; // Preview is already created, no need to recreate it
             }
 
-            let mut pixbuf = if use_rust_preview {
-                let image = match get_dynamic_image_from_path(
-                    &file_name,
-                    Some(ImgResizeOptions {
-                        max_width: 1024,
-                        max_height: 1024,
-                        filter: FirFilterType::Bilinear,
-                    }),
-                ) {
-                    Ok(t) => t.image,
-                    Err(e) => {
-                        add_text_to_text_view(text_view_errors, &flg!("preview_image_opening_failure", name = file_name, reason = e));
-                        break 'dir;
-                    }
-                };
-
-                match get_pixbuf_from_dynamic_image(image) {
-                    Ok(t) => t,
-                    Err(e) => {
-                        add_text_to_text_view(text_view_errors, &flg!("preview_image_opening_failure", name = file_name, reason = e));
-                        break 'dir;
-                    }
-                }
+            // gdk-pixbuf knows fewer formats than czkawka_core (which also uses system codecs on Windows), so it falls back to it.
+            let loaded = if use_rust_preview {
+                load_preview_pixbuf_with_core(&file_name)
             } else {
-                match Pixbuf::from_file(&file_name) {
-                    Ok(pixbuf) => pixbuf,
-                    Err(e) => {
-                        add_text_to_text_view(text_view_errors, &flg!("preview_image_opening_failure", name = file_name, reason = e.to_string()));
-                        break 'dir;
-                    }
+                Pixbuf::from_file(&file_name).or_else(|_| load_preview_pixbuf_with_core(&file_name))
+            };
+            let mut pixbuf = match loaded {
+                Ok(pixbuf) => pixbuf,
+                Err(e) => {
+                    add_text_to_text_view(text_view_errors, &flg!("preview_image_opening_failure", name = file_name, reason = e));
+                    break 'dir;
                 }
             };
             pixbuf = match resize_pixbuf_dimension(&pixbuf, (800, 800), InterpType::Bilinear) {

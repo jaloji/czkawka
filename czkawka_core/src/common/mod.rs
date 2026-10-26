@@ -9,6 +9,8 @@ pub mod directories;
 pub mod extensions;
 pub mod ffmpeg_utils;
 pub mod image;
+#[cfg(windows)]
+mod image_wic;
 pub mod items;
 pub mod logger;
 pub mod model;

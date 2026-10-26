@@ -162,7 +162,7 @@ impl BuildRuntimeInfo {
     fn probe_heif_hevc() -> bool {
         use crate::common::image::{ImageType, get_dynamic_image_from_bytes};
         let bytes: &[u8] = include_bytes!("test_assets/test_3x3.heic");
-        get_dynamic_image_from_bytes(bytes, ImageType::Normal).is_ok()
+        get_dynamic_image_from_bytes(bytes, ImageType::Normal, None).is_ok()
     }
 
     #[cfg(not(feature = "heif"))]
@@ -174,7 +174,7 @@ impl BuildRuntimeInfo {
     fn probe_heif_av1() -> bool {
         use crate::common::image::{ImageType, get_dynamic_image_from_bytes};
         let bytes: &[u8] = include_bytes!("test_assets/test_heif_av1.avif");
-        get_dynamic_image_from_bytes(bytes, ImageType::Normal).is_ok()
+        get_dynamic_image_from_bytes(bytes, ImageType::Normal, None).is_ok()
     }
 
     #[cfg(not(feature = "heif"))]
@@ -186,7 +186,7 @@ impl BuildRuntimeInfo {
     fn probe_libraw() -> bool {
         use crate::common::image::{ImageType, get_dynamic_image_from_bytes};
         let bytes: &[u8] = include_bytes!("test_assets/test_raw.dng");
-        get_dynamic_image_from_bytes(bytes, ImageType::Raw).is_ok()
+        get_dynamic_image_from_bytes(bytes, ImageType::Raw, None).is_ok()
     }
 
     #[cfg(not(feature = "libraw"))]

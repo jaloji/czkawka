@@ -1723,6 +1723,7 @@ dependencies = [
  "trash",
  "ttf-parser",
  "usvg",
+ "windows 0.62.2",
  "xxhash-rust",
  "yaml-rust2",
  "zip",

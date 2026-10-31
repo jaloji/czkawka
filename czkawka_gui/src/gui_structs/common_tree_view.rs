@@ -188,12 +188,44 @@ impl SubView {
 
         self.tree_view.set_vexpand(true);
 
-        self._setup_tree_view_config();
+        if let Some(name_column) = self._setup_tree_view_config() {
+            self._connect_copy_name_on_click(name_column);
+        }
 
         self.tree_view.set_widget_name(self.nb_object.tree_view_name);
         self.scrolled_window.set_child(Some(&self.tree_view));
         self.scrolled_window.set_visible(true);
     }
+    /// A single left click on a file name copies the name to the clipboard.
+    fn _connect_copy_name_on_click(&self, name_column: TreeViewColumn) {
+        let column_name = self.nb_object.column_name;
+        let column_header = self.nb_object.column_header;
+        self.gesture_click.connect_pressed(move |gesture_click, number_of_clicks, x, y| {
+            if number_of_clicks != 1 || gesture_click.current_button() != 1 {
+                return;
+            }
+            let tree_view = gesture_click.get_tree_view();
+            let (bin_x, bin_y) = tree_view.convert_widget_to_bin_window_coords(x as i32, y as i32);
+            let Some((Some(tree_path), Some(column), _, _)) = tree_view.path_at_pos(bin_x, bin_y) else {
+                return;
+            };
+            if column != name_column {
+                return;
+            }
+            let model = tree_view.get_model();
+            let Some(iter) = model.iter(&tree_path) else {
+                return;
+            };
+            if column_header.is_some_and(|header| model.get::<bool>(&iter, header)) {
+                return; // group header rows have no file
+            }
+            let name = model.get::<String>(&iter, column_name);
+            if !name.is_empty() {
+                tree_view.clipboard().set_text(&name);
+            }
+        });
+    }
+
     fn _setup_gesture_click(&self) {
         self.gesture_click.set_button(0);
         self.gesture_click.connect_pressed(opening_double_click_function);
@@ -281,15 +313,16 @@ impl SubView {
             self._setup_evk(gui_data);
         }
     }
-    fn _setup_tree_view_config(&self) {
+    /// Creates the columns and returns the one that shows the file name.
+    fn _setup_tree_view_config(&self) -> Option<TreeViewColumn> {
         let tree_view = &self.tree_view;
         let model = self.get_model();
-        match self.enum_value {
+        let created = match self.enum_value {
             NotebookMainEnum::Duplicate => {
                 let columns_colors = (ColumnsDuplicates::Color as i32, ColumnsDuplicates::TextColor as i32);
                 let activatable_colors = (ColumnsDuplicates::ActivatableSelectButton as i32, ColumnsDuplicates::Color as i32);
                 create_default_selection_button_column(tree_view, ColumnsDuplicates::SelectionButton as i32, model, Some(activatable_colors));
-                create_default_columns(
+                let created = create_default_columns(
                     tree_view,
                     &[
                         (ColumnsDuplicates::Size as i32, ColumnSort::None),
@@ -300,10 +333,11 @@ impl SubView {
                     Some(columns_colors),
                 );
                 assert_eq!(tree_view.columns().len(), 5);
+                created
             }
             NotebookMainEnum::EmptyDirectories => {
                 create_default_selection_button_column(tree_view, ColumnsEmptyFolders::SelectionButton as i32, model, None);
-                create_default_columns(
+                let created = create_default_columns(
                     tree_view,
                     &[
                         (ColumnsEmptyFolders::Name as i32, ColumnSort::Default),
@@ -313,10 +347,11 @@ impl SubView {
                     None,
                 );
                 assert_eq!(tree_view.columns().len(), 4);
+                created
             }
             NotebookMainEnum::BigFiles => {
                 create_default_selection_button_column(tree_view, ColumnsBigFiles::SelectionButton as i32, model, None);
-                create_default_columns(
+                let created = create_default_columns(
                     tree_view,
                     &[
                         (ColumnsBigFiles::Size as i32, ColumnSort::Custom(ColumnsBigFiles::SizeAsBytes as i32)),
@@ -327,10 +362,11 @@ impl SubView {
                     None,
                 );
                 assert_eq!(tree_view.columns().len(), 5);
+                created
             }
             NotebookMainEnum::EmptyFiles => {
                 create_default_selection_button_column(tree_view, ColumnsEmptyFiles::SelectionButton as i32, model, None);
-                create_default_columns(
+                let created = create_default_columns(
                     tree_view,
                     &[
                         (ColumnsEmptyFiles::Name as i32, ColumnSort::Default),
@@ -340,10 +376,11 @@ impl SubView {
                     None,
                 );
                 assert_eq!(tree_view.columns().len(), 4);
+                created
             }
             NotebookMainEnum::Temporary => {
                 create_default_selection_button_column(tree_view, ColumnsTemporaryFiles::SelectionButton as i32, model, None);
-                create_default_columns(
+                let created = create_default_columns(
                     tree_view,
                     &[
                         (ColumnsTemporaryFiles::Name as i32, ColumnSort::Default),
@@ -356,12 +393,13 @@ impl SubView {
                     None,
                 );
                 assert_eq!(tree_view.columns().len(), 4);
+                created
             }
             NotebookMainEnum::SimilarImages => {
                 let columns_colors = (ColumnsSimilarImages::Color as i32, ColumnsSimilarImages::TextColor as i32);
                 let activatable_colors = (ColumnsSimilarImages::ActivatableSelectButton as i32, ColumnsSimilarImages::Color as i32);
                 create_default_selection_button_column(tree_view, ColumnsSimilarImages::SelectionButton as i32, model, Some(activatable_colors));
-                create_default_columns(
+                let created = create_default_columns(
                     tree_view,
                     &[
                         (ColumnsSimilarImages::Similarity as i32, ColumnSort::None),
@@ -374,12 +412,13 @@ impl SubView {
                     Some(columns_colors),
                 );
                 assert_eq!(tree_view.columns().len(), 7);
+                created
             }
             NotebookMainEnum::SimilarVideos => {
                 let columns_colors = (ColumnsSimilarVideos::Color as i32, ColumnsSimilarVideos::TextColor as i32);
                 let activatable_colors = (ColumnsSimilarVideos::ActivatableSelectButton as i32, ColumnsSimilarVideos::Color as i32);
                 create_default_selection_button_column(tree_view, ColumnsSimilarVideos::SelectionButton as i32, model, Some(activatable_colors));
-                create_default_columns(
+                let created = create_default_columns(
                     tree_view,
                     &[
                         (ColumnsSimilarVideos::Size as i32, ColumnSort::None),
@@ -394,12 +433,13 @@ impl SubView {
                     Some(columns_colors),
                 );
                 assert_eq!(tree_view.columns().len(), 9);
+                created
             }
             NotebookMainEnum::SameMusic => {
                 let columns_colors = (ColumnsSameMusic::Color as i32, ColumnsSameMusic::TextColor as i32);
                 let activatable_colors = (ColumnsSameMusic::ActivatableSelectButton as i32, ColumnsSameMusic::Color as i32);
                 create_default_selection_button_column(tree_view, ColumnsSameMusic::SelectionButton as i32, model, Some(activatable_colors));
-                create_default_columns(
+                let created = create_default_columns(
                     tree_view,
                     &[
                         (ColumnsSameMusic::Size as i32, ColumnSort::None),
@@ -416,10 +456,11 @@ impl SubView {
                     Some(columns_colors),
                 );
                 assert_eq!(tree_view.columns().len(), 11);
+                created
             }
             NotebookMainEnum::Symlinks => {
                 create_default_selection_button_column(tree_view, ColumnsInvalidSymlinks::SelectionButton as i32, model, None);
-                create_default_columns(
+                let created = create_default_columns(
                     tree_view,
                     &[
                         (ColumnsInvalidSymlinks::Name as i32, ColumnSort::Default),
@@ -434,10 +475,11 @@ impl SubView {
                     None,
                 );
                 assert_eq!(tree_view.columns().len(), 6);
+                created
             }
             NotebookMainEnum::BrokenFiles => {
                 create_default_selection_button_column(tree_view, ColumnsBrokenFiles::SelectionButton as i32, model, None);
-                create_default_columns(
+                let created = create_default_columns(
                     tree_view,
                     &[
                         (ColumnsBrokenFiles::Name as i32, ColumnSort::Default),
@@ -448,10 +490,11 @@ impl SubView {
                     None,
                 );
                 assert_eq!(tree_view.columns().len(), 5);
+                created
             }
             NotebookMainEnum::BadExtensions => {
                 create_default_selection_button_column(tree_view, ColumnsBadExtensions::SelectionButton as i32, model, None);
-                create_default_columns(
+                let created = create_default_columns(
                     tree_view,
                     &[
                         (ColumnsBadExtensions::Name as i32, ColumnSort::Default),
@@ -462,8 +505,11 @@ impl SubView {
                     None,
                 );
                 assert_eq!(tree_view.columns().len(), 5);
+                created
             }
-        }
+        };
+        let column_name = self.nb_object.column_name;
+        created.into_iter().find(|(col_id, _)| *col_id == column_name).map(|(_, column)| column)
     }
 }
 
@@ -500,7 +546,9 @@ pub(crate) fn create_default_selection_button_column(
     (renderer, column)
 }
 
-pub(crate) fn create_default_columns(tree_view: &TreeView, columns: &[(i32, ColumnSort)], colors_columns_id: Option<(i32, i32)>) {
+/// Returns the created columns with the model column each one shows.
+pub(crate) fn create_default_columns(tree_view: &TreeView, columns: &[(i32, ColumnSort)], colors_columns_id: Option<(i32, i32)>) -> Vec<(i32, TreeViewColumn)> {
+    let mut created = Vec::with_capacity(columns.len());
     for (col_id, sort_method) in columns {
         let renderer = CellRendererText::new();
         let column: TreeViewColumn = TreeViewColumn::new();
@@ -518,7 +566,9 @@ pub(crate) fn create_default_columns(tree_view: &TreeView, columns: &[(i32, Colu
             column.add_attribute(&renderer, "foreground", colors_columns_id.1);
         }
         tree_view.append_column(&column);
+        created.push((*col_id, column));
     }
+    created
 }
 
 fn load_preview_pixbuf_with_core(file_name: &str) -> Result<Pixbuf, String> {
